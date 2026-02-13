@@ -330,73 +330,8 @@ def run_feature_engineering(data_path: str = './') -> pd.DataFrame:
     return all_customers
 
 
-def create_synthetic_data() -> Dict[str, pd.DataFrame]:
-    """
-    Create synthetic data for demonstration purposes.
-    """
-    np.random.seed(42)
-
-    # Customer IDs
-    individual_ids = [f'IND_{i:05d}' for i in range(800)]
-    business_ids = [f'BUS_{i:05d}' for i in range(200)]
-    all_customer_ids = individual_ids + business_ids
-
-    def create_transactions(channel, n, has_location=False, has_merchant=False):
-        df = pd.DataFrame({
-            'transaction_id': [f'{channel}_{i:07d}' for i in range(n)],
-            'customer_id': np.random.choice(all_customer_ids, n),
-            'amount_cad': np.random.exponential(500, n),
-            'debit_credit': np.random.choice(['D', 'C'], n, p=[0.55, 0.45]),
-            'transaction_datetime': pd.date_range(
-                '2024-01-01', periods=n, freq='1min'
-            ) + pd.to_timedelta(np.random.randint(0, 365 * 24 * 60, n), unit='min')
-        })
-
-        if has_location:
-            df['country'] = np.random.choice(['CA', 'US', 'MX', 'UK'], n, p=[0.85, 0.10, 0.03, 0.02])
-            df['province'] = np.random.choice(['ON', 'BC', 'AB', 'QC'], n)
-            df['city'] = np.random.choice(['Toronto', 'Vancouver', 'Calgary', 'Montreal', 'Ottawa'], n)
-
-        if has_merchant:
-            df['merchant_category'] = np.random.choice(
-                ['Retail', 'Restaurant', 'Gas', 'Financial Services', 'Entertainment'],
-                n, p=[0.4, 0.2, 0.15, 0.15, 0.1]
-            )
-
-        return df
-
-    data = {
-        'abm': create_transactions('ABM', 8000, has_location=True),
-        'card': create_transactions('CARD', 20000, has_location=True, has_merchant=True),
-        'cheque': create_transactions('CHQ', 3000),
-        'eft': create_transactions('EFT', 10000),
-        'emt': create_transactions('EMT', 5000),
-        'westernunion': create_transactions('WU', 2000),
-        'wire': create_transactions('WIRE', 2000),
-    }
-
-    data['kyc_individual'] = pd.DataFrame({
-        'customer_id': individual_ids,
-        'income': np.random.lognormal(10.5, 0.8, len(individual_ids)),
-    })
-
-    data['kyc_smallbusiness'] = pd.DataFrame({
-        'customer_id': business_ids,
-        'sales': np.random.lognormal(13, 1.5, len(business_ids)),
-    })
-
-    data['labels'] = pd.DataFrame({
-        'customer_id': all_customer_ids,
-        'label': np.random.choice([0, 1], len(all_customer_ids), p=[0.9, 0.1])
-    })
-
-    return data
-
-
 if __name__ == "__main__":
-    # Run demo with synthetic data
-    print("Creating synthetic data for demonstration...")
-    synthetic_data = create_synthetic_data()
+
 
     # Save synthetic data to temp files
     import os
