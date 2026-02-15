@@ -123,7 +123,80 @@ def compute_temporal_features(transactions: pd.DataFrame) -> pd.DataFrame:
     return features.reset_index()
 
 
+def compute_unique_merchant_category_groups(card_transactions: pd.DataFrame,
+                                       all_customer_ids: pd.Series) -> pd.DataFrame:
+    """
+    Feature: unique_merchant_category_groups
+    Number of unique merchant category GROUPS from card transactions.
 
+    MCC Groups:
+    - Agricultural Services: 0001-1499
+    - Contracted Services: 1500-2999
+    - Airlines: 3000-3299
+    - Car Rental: 3300-3499
+    - Lodging: 3500-3999
+    - Transportation Services: 4000-4799
+    - Utility Services: 4800-4999
+    - Retail Outlet Services: 5000-5599
+    - Clothing Stores: 5600-5699
+    - Miscellaneous Stores: 5700-7299
+    - Business Services: 7300-7999
+    - Professional Services & Membership Orgs: 8000-8999
+    - Government Services: 9000-9999
+    """
+    all_customers = pd.DataFrame({'customer_id': all_customer_ids})
+
+    if len(card_transactions) == 0 or 'merchant_category' not in card_transactions.columns:
+        all_customers['unique_merchant_category_groups'] = 0
+        return all_customers
+
+    df = card_transactions.copy()
+
+    # Map MCC codes to groups
+    def mcc_to_group(mcc):
+        try:
+            mcc = int(mcc)
+        except (ValueError, TypeError):
+            return 'Unknown'
+
+        if 1 <= mcc <= 1499:
+            return 'Agricultural Services'
+        elif 1500 <= mcc <= 2999:
+            return 'Contracted Services'
+        elif 3000 <= mcc <= 3299:
+            return 'Airlines'
+        elif 3300 <= mcc <= 3499:
+            return 'Car Rental'
+        elif 3500 <= mcc <= 3999:
+            return 'Lodging'
+        elif 4000 <= mcc <= 4799:
+            return 'Transportation Services'
+        elif 4800 <= mcc <= 4999:
+            return 'Utility Services'
+        elif 5000 <= mcc <= 5599:
+            return 'Retail Outlet Services'
+        elif 5600 <= mcc <= 5699:
+            return 'Clothing Stores'
+        elif 5700 <= mcc <= 7299:
+            return 'Miscellaneous Stores'
+        elif 7300 <= mcc <= 7999:
+            return 'Business Services'
+        elif 8000 <= mcc <= 8999:
+            return 'Professional Services'
+        elif 9000 <= mcc <= 9999:
+            return 'Government Services'
+        else:
+            return 'Unknown'
+
+    df['mcc_group'] = df['merchant_category'].apply(mcc_to_group)
+
+    features = df.groupby('customer_id')['mcc_group'].nunique().reset_index()
+    features.columns = ['customer_id', 'unique_merchant_category_groups']
+
+    all_customers = all_customers.merge(features, on='customer_id', how='left')
+    all_customers['unique_merchant_category_groups'] = all_customers['unique_merchant_category_groups'].fillna(0)
+
+    return all_customers
 
 
 def compute_unique_merchant_categories(card_transactions: pd.DataFrame,
@@ -199,7 +272,9 @@ def run_feature_engineering(data_path: str = './', output_path: str = None) -> p
     print("   - unique_merchant_categories")
     card_data = data.get('card', pd.DataFrame())
     merchant_features = compute_unique_merchant_categories(card_data, all_customers['customer_id'])
+    groups_merchant_features = compute_unique_merchant_category_groups(card_data, all_customers['customer_id'] )
     all_customers = all_customers.merge(merchant_features, on='customer_id', how='left')
+    all_customers = all_customers.merge(groups_merchant_features, on='customer_id', how='left')
 
 
     # Fill NaN values
