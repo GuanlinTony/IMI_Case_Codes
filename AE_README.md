@@ -27,6 +27,16 @@ This notebook implements a semi-supervised autoencoder (AE) model for anti-money
    - Optimize on labeled data: Maximize TP subject to FPR ≤ 2% (or min precision 0.30).
    - Fallback: Maximize F2 score if constraints unmet.
 
+## Stacking Ensembles
+### This is a useful modeling trick used in dealing with highly imbalanced AML data.
+
+- Base Models: Autoencoder AE and Isolation Forest IF
+- Ensemble Combination
+   - Initial combination: AE and IF scores are averaged using rank-based percentiles to create a preliminary risk score
+   - Stacking Meta-Model: A LogisticRegression model is trained on the labeled subset using the base models' scores as features
+   -  It outputs calibrated probabilities as the final risk_score (predicting suspicious probability [0,1])
+**The meta-model (LogisticRegression) learns to combine predictions from the base models (AE and IF), improving separation and TP/FP tradeoffs. Overall, this ensemble stacking pipeline: AE captures reconstruction-based anomalies, IF catches isolation-based patterns, and stacking optimizes their integration for AML detection.**
+
 ## Evaluation
 - **Metrics**: Confusion matrix (TP, FP, FN, TN), precision, recall, FPR. AUC-ROC, AUC-PR.
 - **Plots**: Confusion matrix, ROC curve, PR curve.
