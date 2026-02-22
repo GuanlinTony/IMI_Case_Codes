@@ -22,6 +22,8 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 from typing import Dict
+import argparse
+import os
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -36,26 +38,26 @@ def load_all_data(data_path: str = './') -> Dict[str, pd.DataFrame]:
     transaction_files = ['abm', 'card', 'cheque', 'eft', 'emt', 'westernunion', 'wire']
     for file in transaction_files:
         try:
-            data[file] = pd.read_csv(f'{data_path}/{file}.csv')
-            print(f"Loaded {file}.csv: {len(data[file]):,} rows")
+            data[file] = pd.read_parquet(f'{data_path}/{file}.parquet')
+            print(f"Loaded {file}.parquet: {len(data[file]):,} rows")
         except FileNotFoundError:
-            print(f"Warning: {file}.csv not found")
+            print(f"Warning: {file}.parquet not found")
 
     # KYC files
     kyc_files = ['kyc_individual', 'kyc_smallbusiness', 'kyc_occupation_codes', 'kyc_industry_codes']
     for file in kyc_files:
         try:
-            data[file] = pd.read_csv(f'{data_path}/{file}.csv')
-            print(f"Loaded {file}.csv: {len(data[file]):,} rows")
+            data[file] = pd.read_parquet(f'{data_path}/{file}.parquet')
+            print(f"Loaded {file}.parquet: {len(data[file]):,} rows")
         except FileNotFoundError:
-            print(f"Warning: {file}.csv not found")
+            print(f"Warning: {file}.parquet not found")
 
     # Labels
     try:
-        data['labels'] = pd.read_csv(f'{data_path}/labels.csv')
-        print(f"Loaded labels.csv: {len(data['labels']):,} rows")
+        data['labels'] = pd.read_parquet(f'{data_path}/labels.parquet')
+        print(f"Loaded labels.parquet: {len(data['labels']):,} rows")
     except FileNotFoundError:
-        print("Warning: labels.csv not found")
+        print("Warning: labels.parquet not found")
 
     return data
 
@@ -93,15 +95,6 @@ def combine_transactions(data: Dict[str, pd.DataFrame]) -> pd.DataFrame:
     return combined
 
 
-def compute_num_channels_used(transactions: pd.DataFrame) -> pd.DataFrame:
-    """
-    Feature: num_channels_used
-    Count of unique transaction channels used by each customer.
-    """
-    features = transactions.groupby('customer_id')['channel'].nunique().reset_index()
-    features.columns = ['customer_id', 'num_channels_used']
-    return features
-
 
 def compute_temporal_features(transactions: pd.DataFrame) -> pd.DataFrame:
     """
@@ -130,78 +123,80 @@ def compute_temporal_features(transactions: pd.DataFrame) -> pd.DataFrame:
     return features.reset_index()
 
 
-def compute_geographic_features(transactions: pd.DataFrame) -> pd.DataFrame:
+def compute_unique_merchant_category_groups(card_transactions: pd.DataFrame,
+                                       all_customer_ids: pd.Series) -> pd.DataFrame:
     """
-    Features: unique_provinces, unique_countries, unique_cities, geo_diversity_score
+    Feature: unique_merchant_category_groups
+    Number of unique merchant category GROUPS from card transactions.
+
+    MCC Groups:
+    - Agricultural Services: 0001-1499
+    - Contracted Services: 1500-2999
+    - Airlines: 3000-3299
+    - Car Rental: 3300-3499
+    - Lodging: 3500-3999
+    - Transportation Services: 4000-4799
+    - Utility Services: 4800-4999
+    - Retail Outlet Services: 5000-5599
+    - Clothing Stores: 5600-5699
+    - Miscellaneous Stores: 5700-7299
+    - Business Services: 7300-7999
+    - Professional Services & Membership Orgs: 8000-8999
+    - Government Services: 9000-9999
     """
-    # Filter transactions with location data (ABM, Card)
-    geo_txn = transactions[transactions['country'].notna()].copy()
+    all_customers = pd.DataFrame({'customer_id': all_customer_ids})
 
-    # Get all customer IDs
-    all_customers = pd.DataFrame({'customer_id': transactions['customer_id'].unique()})
-
-    if len(geo_txn) == 0:
-        all_customers['unique_countries'] = 0
-        all_customers['unique_provinces'] = 0
-        all_customers['unique_cities'] = 0
-        all_customers['geo_diversity_score'] = 0
+    if len(card_transactions) == 0 or 'merchant_category' not in card_transactions.columns:
+        all_customers['unique_merchant_category_groups'] = 0
         return all_customers
 
-    geo_features = geo_txn.groupby('customer_id').agg({
-        'country': 'nunique',
-        'province': 'nunique',
-        'city': 'nunique',
-    })
-    geo_features.columns = ['unique_countries', 'unique_provinces', 'unique_cities']
+    df = card_transactions.copy()
 
-    # geo_diversity_score
-    geo_features['geo_diversity_score'] = (
-            geo_features['unique_countries'] * 10 +
-            geo_features['unique_provinces'] * 2 +
-            geo_features['unique_cities']
-    )
+    # Map MCC codes to groups
+    def mcc_to_group(mcc):
+        try:
+            mcc = int(mcc)
+        except (ValueError, TypeError):
+            return 'Unknown'
 
-    # Merge with all customers
-    all_customers = all_customers.merge(geo_features.reset_index(), on='customer_id', how='left')
-    all_customers = all_customers.fillna(0)
+        if 1 <= mcc <= 1499:
+            return 'Agricultural Services'
+        elif 1500 <= mcc <= 2999:
+            return 'Contracted Services'
+        elif 3000 <= mcc <= 3299:
+            return 'Airlines'
+        elif 3300 <= mcc <= 3499:
+            return 'Car Rental'
+        elif 3500 <= mcc <= 3999:
+            return 'Lodging'
+        elif 4000 <= mcc <= 4799:
+            return 'Transportation Services'
+        elif 4800 <= mcc <= 4999:
+            return 'Utility Services'
+        elif 5000 <= mcc <= 5599:
+            return 'Retail Outlet Services'
+        elif 5600 <= mcc <= 5699:
+            return 'Clothing Stores'
+        elif 5700 <= mcc <= 7299:
+            return 'Miscellaneous Stores'
+        elif 7300 <= mcc <= 7999:
+            return 'Business Services'
+        elif 8000 <= mcc <= 8999:
+            return 'Professional Services'
+        elif 9000 <= mcc <= 9999:
+            return 'Government Services'
+        else:
+            return 'Unknown'
+
+    df['mcc_group'] = df['merchant_category'].apply(mcc_to_group)
+
+    features = df.groupby('customer_id')['mcc_group'].nunique().reset_index()
+    features.columns = ['customer_id', 'unique_merchant_category_groups']
+
+    all_customers = all_customers.merge(features, on='customer_id', how='left')
+    all_customers['unique_merchant_category_groups'] = all_customers['unique_merchant_category_groups'].fillna(0)
 
     return all_customers
-
-
-def compute_near_threshold_count(transactions: pd.DataFrame, threshold: float = 10000) -> pd.DataFrame:
-    """
-    Feature: near_threshold_count
-    Count of transactions within 10% below the reporting threshold.
-    """
-    features_list = []
-
-    for customer_id, group in transactions.groupby('customer_id'):
-        amounts = group['amount_cad'].values
-        # Transactions within 90-100% of threshold
-        near_threshold = ((threshold * 0.9 <= amounts) & (amounts < threshold)).sum()
-
-        features_list.append({
-            'customer_id': customer_id,
-            'near_threshold_count': near_threshold
-        })
-
-    return pd.DataFrame(features_list)
-
-
-def compute_avg_txn_per_active_day(transactions: pd.DataFrame) -> pd.DataFrame:
-    """
-    Feature: avg_txn_per_active_day
-    Average number of transactions per day when customer was active.
-    """
-    features = transactions.groupby('customer_id').agg({
-        'transaction_id': 'count',
-        'date': 'nunique'
-    })
-    features.columns = ['total_txn', 'unique_days']
-
-    features['avg_txn_per_active_day'] = features['total_txn'] / features['unique_days']
-
-    return features[['avg_txn_per_active_day']].reset_index()
 
 
 def compute_unique_merchant_categories(card_transactions: pd.DataFrame,
@@ -225,40 +220,16 @@ def compute_unique_merchant_categories(card_transactions: pd.DataFrame,
     return all_customers
 
 
-def compute_txn_to_income_ratio(transactions: pd.DataFrame,
-                                kyc_individual: pd.DataFrame,
-                                kyc_smallbusiness: pd.DataFrame) -> pd.DataFrame:
-    """
-    Feature: txn_to_income_ratio
-    Ratio of total transaction amount to stated income/sales.
-    """
-    # Get total transaction amounts per customer
-    txn_totals = transactions.groupby('customer_id')['amount_cad'].sum().reset_index()
-    txn_totals.columns = ['customer_id', 'total_txn_amount']
-
-    # Get income from individual KYC
-    individual_income = kyc_individual[['customer_id', 'income']].copy()
-
-    # Get sales from business KYC (use as income proxy)
-    business_income = kyc_smallbusiness[['customer_id', 'sales']].copy()
-    business_income.columns = ['customer_id', 'income']
-
-    # Combine
-    all_income = pd.concat([individual_income, business_income], ignore_index=True)
-
-    # Merge with transaction totals
-    features = txn_totals.merge(all_income, on='customer_id', how='left')
-
-    # Calculate ratio (avoid division by zero)
-    features['txn_to_income_ratio'] = features['total_txn_amount'] / features['income'].replace(0, 1)
-    features.loc[features['income'] == 0, 'txn_to_income_ratio'] = 0
-
-    return features[['customer_id', 'txn_to_income_ratio']]
-
-
-def run_feature_engineering(data_path: str = './') -> pd.DataFrame:
+def run_feature_engineering(data_path: str = './', output_path: str = None) -> pd.DataFrame:
     """
     Main function to run feature engineering for selected features only.
+
+    Args:
+        data_path: Path to directory containing the parquet files
+        output_path: Path for output CSV file. If None, saves to data_path/aml_features_selected.csv
+
+    Returns:
+        DataFrame with computed features
     """
     print("=" * 60)
     print("AML Feature Engineering - Selected Features")
@@ -267,6 +238,18 @@ def run_feature_engineering(data_path: str = './') -> pd.DataFrame:
     # Load data
     print("\n1. Loading data...")
     data = load_all_data(data_path)
+
+    # Check if we have any transaction data
+    transaction_channels = ['abm', 'card', 'cheque', 'eft', 'emt', 'westernunion', 'wire']
+    available_channels = [ch for ch in transaction_channels if ch in data]
+
+    if not available_channels:
+        raise ValueError(
+            f"No transaction data found in {data_path}!\n"
+            f"Expected parquet files: {', '.join([f'{ch}.parquet' for ch in transaction_channels])}"
+        )
+
+    print(f"\n   Available channels: {', '.join(available_channels)}")
 
     # Combine transactions
     print("\n2. Combining transactions...")
@@ -282,42 +265,17 @@ def run_feature_engineering(data_path: str = './') -> pd.DataFrame:
     # Compute selected features
     print("\n3. Computing selected features...")
 
-    print("   - num_channels_used")
-    channels_features = compute_num_channels_used(transactions)
-    all_customers = all_customers.merge(channels_features, on='customer_id', how='left')
-
     print("   - late_night_ratio, late_night_txn_count, weekend_txn_count, activity_span_days")
     temporal_features = compute_temporal_features(transactions)
     all_customers = all_customers.merge(temporal_features, on='customer_id', how='left')
 
-    print("   - unique_provinces, unique_countries, unique_cities, geo_diversity_score")
-    geo_features = compute_geographic_features(transactions)
-    all_customers = all_customers.merge(geo_features, on='customer_id', how='left')
-
-    print("   - near_threshold_count")
-    threshold_features = compute_near_threshold_count(transactions)
-    all_customers = all_customers.merge(threshold_features, on='customer_id', how='left')
-
-    print("   - avg_txn_per_active_day")
-    active_day_features = compute_avg_txn_per_active_day(transactions)
-    all_customers = all_customers.merge(active_day_features, on='customer_id', how='left')
-
     print("   - unique_merchant_categories")
     card_data = data.get('card', pd.DataFrame())
     merchant_features = compute_unique_merchant_categories(card_data, all_customers['customer_id'])
+    groups_merchant_features = compute_unique_merchant_category_groups(card_data, all_customers['customer_id'] )
     all_customers = all_customers.merge(merchant_features, on='customer_id', how='left')
+    all_customers = all_customers.merge(groups_merchant_features, on='customer_id', how='left')
 
-    print("   - txn_to_income_ratio")
-    if 'kyc_individual' in data and 'kyc_smallbusiness' in data:
-        ratio_features = compute_txn_to_income_ratio(
-            transactions, data['kyc_individual'], data['kyc_smallbusiness']
-        )
-        all_customers = all_customers.merge(ratio_features, on='customer_id', how='left')
-
-    # Add labels if available
-    if 'labels' in data:
-        print("   - Adding labels")
-        all_customers = all_customers.merge(data['labels'], on='customer_id', how='left')
 
     # Fill NaN values
     print("\n4. Handling missing values...")
@@ -325,45 +283,58 @@ def run_feature_engineering(data_path: str = './') -> pd.DataFrame:
     all_customers[numeric_cols] = all_customers[numeric_cols].fillna(0)
 
     print(f"\n5. Final feature matrix: {all_customers.shape[0]} customers x {all_customers.shape[1]} columns")
+
+    # Save output
+    if output_path is None:
+        output_path = os.path.join(data_path, 'yifei_aml_features_selected.parquet')
+
+    all_customers.to_parquet(output_path, index=False)
+    print(f"\n6. Features saved to: {output_path}")
+
     print("=" * 60)
 
     return all_customers
 
 
-if __name__ == "__main__":
+def main():
+    parser = argparse.ArgumentParser(description='AML Feature Engineering')
 
+    parser.add_argument(
+        '--data_path',
+        type=str,
+        default='/Users/yc/Documents/GitHub/IMI_Case_Codes/',
+        help='Path to directory containing parquet files'
+    )
 
-    # Save synthetic data to temp files
-    import os
+    parser.add_argument(
+        '--output',
+        type=str,
+        default=None,
+        help='Output parquet file path'
+    )
 
-    temp_dir = '/tmp/aml_data'
-    os.makedirs(temp_dir, exist_ok=True)
-
-    for name, df in synthetic_data.items():
-        df.to_csv(f'{temp_dir}/{name}.csv', index=False)
+    args = parser.parse_args()
 
     # Run feature engineering
-    features = run_feature_engineering(temp_dir)
+    features = run_feature_engineering(args.data_path, args.output)
 
     # Display results
     print("\n" + "=" * 60)
-    print("SELECTED FEATURES")
+    print("FEATURE COLUMNS")
     print("=" * 60)
-    print(f"\nFeature columns:")
     for col in features.columns:
         print(f"  - {col}")
 
     print("\n" + "=" * 60)
-    print("SAMPLE DATA")
+    print("SAMPLE DATA (first 10 rows)")
     print("=" * 60)
     print(features.head(10).to_string())
 
-    # Summary statistics
     print("\n" + "=" * 60)
     print("FEATURE STATISTICS")
     print("=" * 60)
     print(features.describe().round(2).to_string())
 
-    # Save features
-    features.to_csv('./aml_features_selected.csv', index=False)
-    print(f"\nFeatures saved to: output_path")
+
+if __name__ == "__main__":
+    main()
