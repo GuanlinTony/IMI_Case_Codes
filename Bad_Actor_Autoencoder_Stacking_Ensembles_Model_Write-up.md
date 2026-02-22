@@ -49,7 +49,7 @@ This notebook implements a semi-supervised autoencoder (AE) model for anti-money
   - Confusion matrices by type using global threshold.
 - **Output**: CSV with `customer_id`, `predicted_label`, `risk_score`.
 
-## How Flagging Works (model_output.csv)
+## How Flagging Works for our "bad actor model"
 
 This project produces a **customer-level AML risk score** and a **binary flag** indicating whether a customer should be prioritized for investigation. The final deliverable is a single file: `model_output.csv`.
 
