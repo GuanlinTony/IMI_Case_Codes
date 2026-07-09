@@ -68,9 +68,7 @@ For each customer, the model outputs a continuous **anomaly score** based on **r
 - Input: feature vector `x`
 - AE reconstruction: `x_hat`
 - Reconstruction error (per customer):  
-  $$
-  \text{error}(x) = \text{mean}\left((x - \hat{x})^2\right)
-  $$
+  $$\text{error}(x) = \text{mean}\left((x - \hat{x})^2\right)$$
 
 This error is then converted into a normalized **risk_score ∈ [0, 1]**, where:
 - **Higher risk_score** = more anomalous behavior relative to learned normal patterns
