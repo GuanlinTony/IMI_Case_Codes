@@ -3,7 +3,7 @@
 Both the two files `IMI_Modeling_Autoencoder_v3` and `v7` contains the model pipelines (the Denoising Autoencoder AE Stacking Ensembles ) we train and predict to produce the final `model_output.csv` predictions, though `v7` includes our PCA cluster feature as our training indicator.
 
 ## Overview
-This notebook implements a semi-supervised autoencoder (AE) model for anti-money laundering (AML) anomaly detection. It combines a denoising AE with IsolationForest, calibrated via LogisticRegression, to score customers as suspicious (1) or normal (0). The model prioritizes high true positives (TP) with controlled false positives (FP), achieving AUC-ROC ≈ 0.822, AUC-PR = 0.21 and Precision around 30%. Procedures include data preprocessing, semi-supervised training, threshold tuning, and AML-friendly evaluations.
+This notebook implements a semi-supervised autoencoder (AE) model for anti-money laundering (AML) anomaly detection. It combines a denoising AE with IsolationForest (IF), calibrated via LogisticRegression, to score customers as suspicious (1) or normal (0). The model prioritizes high true positives (TP) with controlled false positives (FP), achieving AUC-ROC ≈ 0.822, AUC-PR = 0.21 and Precision around 30%. Procedures include data preprocessing, semi-supervised training, threshold tuning, and AML-friendly evaluations.
 
 ## Data Preparation
 - **Load Data**: Read CSV (`customer_clusters.csv`), optional sampling (e.g., 2M rows max). Validate columns: `customer_id`, `label` (0=normal, 1=suspicious, NaN=unlabeled), `cluster` (0-6).
@@ -68,9 +68,9 @@ For each customer, the model outputs a continuous **anomaly score** based on **r
 - Input: feature vector `x`
 - AE reconstruction: `x_hat`
 - Reconstruction error (per customer):  
-  \[
+  $$
   \text{error}(x) = \text{mean}\left((x - \hat{x})^2\right)
-  \]
+  $$
 
 This error is then converted into a normalized **risk_score ∈ [0, 1]**, where:
 - **Higher risk_score** = more anomalous behavior relative to learned normal patterns
